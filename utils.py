@@ -9,7 +9,10 @@ import os
 import hashlib
 import zipfile
 from six.moves import urllib
-
+import cv2
+import numpy as np
+import torch
+from tensorboard import program
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -47,6 +50,11 @@ def sec_to_hm_str(t):
     h, m, s = sec_to_hm(t)
     return "{:02d}h{:02d}m{:02d}s".format(h, m, s)
 
+def color_map(disparity, cmap='magma'):
+    numpy_disp = disparity.cpu().detach().numpy().squeeze()
+    colored_map = cv2.applyColorMap(np.uint8(numpy_disp), cmap)
+    chw_colored = np.transpose(colored_map, (2, 0, 1))
+    return chw_colored
 
 def download_model_if_doesnt_exist(model_name):
     """If pretrained kitti model doesn't exist, download and unzip it
@@ -112,3 +120,13 @@ def download_model_if_doesnt_exist(model_name):
             f.extractall(model_path)
 
         print("   Model unzipped to {}".format(model_path))
+
+def print_params(name, params):
+    print("** {} params: ".format(name))
+    for k,v in params.items():
+        print("   - {}: {}".format(k,v))
+
+def run_tensorboard(logdir, port):
+    tb = program.TensorBoard()
+    tb.configure(argv=[None, '--logdir', logdir, '--bind_all','--port', str(port)])
+    url = tb.launch()

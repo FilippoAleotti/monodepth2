@@ -27,10 +27,14 @@ class MonodepthOptions:
                                  default=os.path.join(os.path.expanduser("~"), "tmp"))
 
         # TRAINING options
-        self.parser.add_argument("--model_name",
+        self.parser.add_argument("--architecture",
                                  type=str,
-                                 help="the name of the folder to save the model in",
-                                 default="mdp")
+                                 help="which architecture do you want to train?",
+                                 required=True)
+        self.parser.add_argument("--training_port",
+                                 type=int,
+                                 help="tensorboard port",
+                                 default=6006)
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
@@ -127,11 +131,6 @@ class MonodepthOptions:
                                  help="how many images the pose network gets",
                                  default="pairs",
                                  choices=["pairs", "all"])
-        self.parser.add_argument("--pose_model_type",
-                                 type=str,
-                                 help="normal or shared",
-                                 default="separate_resnet",
-                                 choices=["posecnn", "separate_resnet", "shared"])
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

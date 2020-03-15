@@ -12,7 +12,9 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import torch.utils.model_zoo as model_zoo
-
+from collections import OrderedDict
+from layers import *
+from networks.utils import value_or_default
 
 class ResNetMultiImageInput(models.ResNet):
     """Constructs a resnet model with varying number of input images.
@@ -59,12 +61,15 @@ def resnet_multiimage_input(num_layers, pretrained=False, num_input_images=1):
     return model
 
 
-class ResnetEncoder(nn.Module):
+class Encoder(nn.Module):
     """Pytorch module for a resnet encoder
     """
-    def __init__(self, num_layers, pretrained, num_input_images=1):
-        super(ResnetEncoder, self).__init__()
-
+    def __init__(self, params):
+        super(Encoder, self).__init__()
+        self.params = params
+        num_layers = params['num_layers']
+        pretrained = params['pretrained']
+        num_input_images = value_or_default(params, 'num_input_images', default=1)
         self.num_ch_enc = np.array([64, 64, 128, 256, 512])
 
         resnets = {18: models.resnet18,
@@ -96,3 +101,53 @@ class ResnetEncoder(nn.Module):
         self.features.append(self.encoder.layer4(self.features[-1]))
 
         return self.features
+
+class Decoder(nn.Module):
+    def __init__(self, params):
+        super(Decoder, self).__init__()
+        self.params = params
+        self.num_output_channels = params['num_output_channels']
+        self.use_skips = value_or_default(params, 'use_skips', default=True)
+        self.upsample_mode = 'nearest'
+        self.scales = valid_or_default(params, 'scales', default= range(4))
+
+        self.num_ch_enc = params['num_ch_enc']
+        self.num_ch_dec = np.array([16, 32, 64, 128, 256])
+
+        # decoder
+        self.convs = OrderedDict()
+        for i in range(4, -1, -1):
+            # upconv_0
+            num_ch_in = self.num_ch_enc[-1] if i == 4 else self.num_ch_dec[i + 1]
+            num_ch_out = self.num_ch_dec[i]
+            self.convs[("upconv", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
+
+            # upconv_1
+            num_ch_in = self.num_ch_dec[i]
+            if self.use_skips and i > 0:
+                num_ch_in += self.num_ch_enc[i - 1]
+            num_ch_out = self.num_ch_dec[i]
+            self.convs[("upconv", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
+
+        for s in self.scales:
+            self.convs[("dispconv", s)] = Conv3x3(self.num_ch_dec[s], self.num_output_channels)
+
+        self.decoder = nn.ModuleList(list(self.convs.values()))
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, input_features):
+        self.outputs = {}
+
+        # decoder
+        x = input_features[-1]
+        for i in range(4, -1, -1):
+            x = self.convs[("upconv", i, 0)](x)
+            x = [upsample(x)]
+            if self.use_skips and i > 0:
+                x += [input_features[i - 1]]
+            x = torch.cat(x, 1)
+            x = self.convs[("upconv", i, 1)](x)
+            if i in self.scales:
+                self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](x))
+
+        return self.outputs

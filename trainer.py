@@ -14,22 +14,17 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
-
 import json
-
 from utils import *
 from kitti_utils import *
 from layers import *
-
 import datasets
-import networks
-from IPython import embed
-
+from networks import factory
 
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+        self.log_path = os.path.join(self.opt.log_dir, self.opt.architecture)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -51,39 +46,34 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        self.models["encoder"] = networks.ResnetEncoder(
-            self.opt.num_layers, self.opt.weights_init == "pretrained")
+        print('=> building depth encoder')
+        encoder_params = {
+            'num_layers': self.opt.num_layers,
+            'pretrained': self.opt.weights_init == "pretrained"
+        }
+        print_params('encoder', encoder_params)
+        self.models["encoder"] = factory.get_encoder(self.opt.architecture)(params=encoder_params)
         self.models["encoder"].to(self.device)
         self.parameters_to_train += list(self.models["encoder"].parameters())
-
-        self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales)
+        
+        print('=> building depth decoder')
+        decoder_params = {
+            'num_ch_enc': self.models["encoder"].num_ch_enc,
+            'scales': self.opt.scales,
+        }
+        print_params('decoder', decoder_params)
+        self.models["depth"] = factory.get_decoder(self.opt.architecture)(params=decoder_params)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
         if self.use_pose_net:
-            if self.opt.pose_model_type == "separate_resnet":
-                self.models["pose_encoder"] = networks.ResnetEncoder(
-                    self.opt.num_layers,
-                    self.opt.weights_init == "pretrained",
-                    num_input_images=self.num_pose_frames)
-
-                self.models["pose_encoder"].to(self.device)
-                self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-
-                self.models["pose"] = networks.PoseDecoder(
-                    self.models["pose_encoder"].num_ch_enc,
-                    num_input_features=1,
-                    num_frames_to_predict_for=2)
-
-            elif self.opt.pose_model_type == "shared":
-                self.models["pose"] = networks.PoseDecoder(
-                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
-
-            elif self.opt.pose_model_type == "posecnn":
-                self.models["pose"] = networks.PoseCNN(
-                    self.num_input_frames if self.opt.pose_model_input == "all" else 2)
-
+            print("=> building pose network (Resnet18)")
+            pose_params = {
+                'num_layers': self.opt.num_layers,
+                'pretrained': self.opt.weights_init == "pretrained",
+                'num_input_images': self.num_pose_frames
+            }
+            self.models["pose_encoder"] = factory.get_encoder('resnet')(params=pose_params)
             self.models["pose"].to(self.device)
             self.parameters_to_train += list(self.models["pose"].parameters())
 
@@ -106,10 +96,11 @@ class Trainer:
         if self.opt.load_weights_folder is not None:
             self.load_model()
 
-        print("Training model named:\n  ", self.opt.model_name)
+        print("Training model named:\n  ", self.opt.architecture)
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
-
+        run_tensorboard(logdir=self.opt.log_dir, port=self.opt.training_port)
+        print('Tensorboard now running!')
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "kitti_odom": datasets.KITTIOdomDataset}
@@ -146,17 +137,13 @@ class Trainer:
             self.ssim = SSIM()
             self.ssim.to(self.device)
 
-        self.backproject_depth = {}
-        self.project_3d = {}
-        for scale in self.opt.scales:
-            h = self.opt.height // (2 ** scale)
-            w = self.opt.width // (2 ** scale)
+        # NOTE:
+        # remove other scales
+        self.backproject_depth = BackprojectDepth(self.opt.batch_size, self.opt.height, self.opt.width )
+        self.backproject_depth.to(self.device)
 
-            self.backproject_depth[scale] = BackprojectDepth(self.opt.batch_size, h, w)
-            self.backproject_depth[scale].to(self.device)
-
-            self.project_3d[scale] = Project3D(self.opt.batch_size, h, w)
-            self.project_3d[scale].to(self.device)
+        self.project_3d = Project3D(self.opt.batch_size, self.opt.height, self.opt.width )
+        self.project_3d.to(self.device)
 
         self.depth_metric_names = [
             "de/abs_rel", "de/sq_rel", "de/rms", "de/log_rms", "da/a1", "da/a2", "da/a3"]
@@ -193,8 +180,6 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
-        self.model_lr_scheduler.step()
-
         print("Training")
         self.set_train()
 
@@ -224,6 +209,9 @@ class Trainer:
                 self.val()
 
             self.step += 1
+        # NOTE: in pytorch 1.1.0 and later, first optimizer.step and then lr_scheduler.step
+        self.model_lr_scheduler.step()
+
 
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
@@ -231,22 +219,9 @@ class Trainer:
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
 
-        if self.opt.pose_model_type == "shared":
-            # If we are using a shared encoder for both depth and pose (as advocated
-            # in monodepthv1), then all images are fed separately through the depth encoder.
-            all_color_aug = torch.cat([inputs[("color_aug", i, 0)] for i in self.opt.frame_ids])
-            all_features = self.models["encoder"](all_color_aug)
-            all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
-
-            features = {}
-            for i, k in enumerate(self.opt.frame_ids):
-                features[k] = [f[i] for f in all_features]
-
-            outputs = self.models["depth"](features[0])
-        else:
-            # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
-            outputs = self.models["depth"](features)
+        # Otherwise, we only feed the image with frame_id 0 through the depth encoder
+        features = self.models["encoder"](inputs["color_aug", 0, 0])
+        outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -267,11 +242,7 @@ class Trainer:
             # In this setting, we compute the pose to each source frame via a
             # separate forward pass through the pose network.
 
-            # select what features the pose network takes as input
-            if self.opt.pose_model_type == "shared":
-                pose_feats = {f_i: features[f_i] for f_i in self.opt.frame_ids}
-            else:
-                pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
+            pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
 
             for f_i in self.opt.frame_ids[1:]:
                 if f_i != "s":
@@ -281,11 +252,8 @@ class Trainer:
                     else:
                         pose_inputs = [pose_feats[0], pose_feats[f_i]]
 
-                    if self.opt.pose_model_type == "separate_resnet":
-                        pose_inputs = [self.models["pose_encoder"](torch.cat(pose_inputs, 1))]
-                    elif self.opt.pose_model_type == "posecnn":
-                        pose_inputs = torch.cat(pose_inputs, 1)
-
+                    pose_inputs = [self.models["pose_encoder"](torch.cat(pose_inputs, 1))]
+                   
                     axisangle, translation = self.models["pose"](pose_inputs)
                     outputs[("axisangle", 0, f_i)] = axisangle
                     outputs[("translation", 0, f_i)] = translation
@@ -296,15 +264,9 @@ class Trainer:
 
         else:
             # Here we input all frames to the pose net (and predict all poses) together
-            if self.opt.pose_model_type in ["separate_resnet", "posecnn"]:
-                pose_inputs = torch.cat(
-                    [inputs[("color_aug", i, 0)] for i in self.opt.frame_ids if i != "s"], 1)
-
-                if self.opt.pose_model_type == "separate_resnet":
-                    pose_inputs = [self.models["pose_encoder"](pose_inputs)]
-
-            elif self.opt.pose_model_type == "shared":
-                pose_inputs = [features[i] for i in self.opt.frame_ids if i != "s"]
+            
+            pose_inputs = torch.cat([inputs[("color_aug", i, 0)] for i in self.opt.frame_ids if i != "s"], 1)
+            pose_inputs = [self.models["pose_encoder"](pose_inputs)]
 
             axisangle, translation = self.models["pose"](pose_inputs)
 
@@ -344,15 +306,9 @@ class Trainer:
         """
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
-            if self.opt.v1_multiscale:
-                source_scale = scale
-            else:
-                disp = F.interpolate(
-                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-                source_scale = 0
-
+            disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+            source_scale = 0
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
-
             outputs[("depth", 0, scale)] = depth
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
@@ -362,21 +318,9 @@ class Trainer:
                 else:
                     T = outputs[("cam_T_cam", 0, frame_id)]
 
-                # from the authors of https://arxiv.org/abs/1712.00175
-                if self.opt.pose_model_type == "posecnn":
-
-                    axisangle = outputs[("axisangle", 0, frame_id)]
-                    translation = outputs[("translation", 0, frame_id)]
-
-                    inv_depth = 1 / depth
-                    mean_inv_depth = inv_depth.mean(3, True).mean(2, True)
-
-                    T = transformation_from_parameters(
-                        axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
-
-                cam_points = self.backproject_depth[source_scale](
+                cam_points = self.backproject_depth(
                     depth, inputs[("inv_K", source_scale)])
-                pix_coords = self.project_3d[source_scale](
+                pix_coords = self.project_3d(
                     cam_points, inputs[("K", source_scale)], T)
 
                 outputs[("sample", frame_id, scale)] = pix_coords
@@ -413,11 +357,8 @@ class Trainer:
         for scale in self.opt.scales:
             loss = 0
             reprojection_losses = []
-
-            if self.opt.v1_multiscale:
-                source_scale = scale
-            else:
-                source_scale = 0
+            # target has same shape of input
+            source_scale = 0
 
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
@@ -557,7 +498,7 @@ class Trainer:
 
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
-                    normalize_image(outputs[("disp", s)][j]), self.step)
+                    color_map(normalize_image(outputs[("disp", s)][j]), self.step))
 
                 if self.opt.predictive_mask:
                     for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
