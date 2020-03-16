@@ -157,7 +157,10 @@ class Decoder(nn.Module):
     def get_disparity(self):
         layers = []
         layers.append(conv2d_leaky(channel_in=8,  channel_out=1,  kernel_size=3, dilation=1, stride=1, relu=False))
-        layers.append(nn.Sigmoid())
+        if self.params['supervised'] == False:
+            # NOTE: in case of unsupervised training,
+            # apply sigmoid function as last activation
+            layers.append(nn.Sigmoid())
         return nn.Sequential(*layers)
 
 

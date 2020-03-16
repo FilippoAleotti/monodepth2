@@ -140,12 +140,16 @@ class Decoder(nn.Module):
             depthwise(64, kernel_size),
             pointwise(64, 32))
         self.decode_conv6 = pointwise(32, 1)
+        self.sigmoid =  nn.Sigmoid()
+
         weights_init(self.decode_conv1)
         weights_init(self.decode_conv2)
         weights_init(self.decode_conv3)
         weights_init(self.decode_conv4)
         weights_init(self.decode_conv5)
         weights_init(self.decode_conv6)
+
+
 
 
     def forward(self, features):
@@ -161,7 +165,9 @@ class Decoder(nn.Module):
             elif i==2:
                 x = x + features['x3']
         x = self.decode_conv6(x)
-        
+        if params['supervised'] == False:
+            x = self.sigmoid(x)
+
         self.outputs = {}
         assert self.params['scales'] == [0], 'MobileNet outputs a single depth! No multiple scales are allowed'
         self.outputs[("disp", 0)] = x

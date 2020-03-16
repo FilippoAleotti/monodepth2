@@ -148,6 +148,10 @@ class Decoder(nn.Module):
             x = torch.cat(x, 1)
             x = self.convs[("upconv", i, 1)](x)
             if i in self.scales:
-                self.outputs[("disp", i)] = self.sigmoid(self.convs[("dispconv", i)](x))
-
+                output = self.convs[("dispconv", i)](x)
+                if params['supervised'] == False:
+                    # in case of unsupervised training,
+                    # apply sigmoid function as last activation
+                    output = self.sigmoid(output)
+                self.outputs[("disp", i)] = output
         return self.outputs

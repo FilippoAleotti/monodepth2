@@ -62,6 +62,7 @@ class Trainer:
         decoder_params = {
             'num_ch_enc': self.models["encoder"].num_ch_enc,
             'scales': self.opt.scales,
+            'supervised': False
         }
         print_params('decoder', decoder_params)
         self.models["depth"] = factory.get_decoder(self.opt.architecture)(params=decoder_params)
@@ -104,6 +105,7 @@ class Trainer:
         print("Training is using:\n  ", self.device)
         run_tensorboard(logdir=self.opt.log_dir, port=self.opt.training_port)
         print('Tensorboard now running!')
+        
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "kitti_odom": datasets.KITTIOdomDataset}
