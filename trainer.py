@@ -498,7 +498,7 @@ class Trainer:
 
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
-                    color_map(normalize_image(outputs[("disp", s)][j]), self.step))
+                    color_map(outputs[("disp", s)][j], cmap='magma'), self.step)
 
                 if self.opt.predictive_mask:
                     for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
