@@ -149,7 +149,7 @@ class Decoder(nn.Module):
             x = self.convs[("upconv", i, 1)](x)
             if i in self.scales:
                 output = self.convs[("dispconv", i)](x)
-                if params['supervised'] == False:
+                if self.params['supervised'] == False:
                     # in case of unsupervised training,
                     # apply sigmoid function as last activation
                     output = self.sigmoid(output)

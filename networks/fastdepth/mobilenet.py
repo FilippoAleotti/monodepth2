@@ -165,7 +165,7 @@ class Decoder(nn.Module):
             elif i==2:
                 x = x + features['x3']
         x = self.decode_conv6(x)
-        if params['supervised'] == False:
+        if self.params['supervised'] == False:
             x = self.sigmoid(x)
 
         self.outputs = {}
