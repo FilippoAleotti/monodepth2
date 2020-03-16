@@ -67,12 +67,13 @@ def depthwise(in_channels, kernel_size):
         )
 
 
-def pointwise(in_channels, out_channels):
-    return nn.Sequential(
-          nn.Conv2d(in_channels,out_channels,1,1,0,bias=False),
-          nn.BatchNorm2d(out_channels),
-          nn.ReLU(inplace=True),
-        )
+def pointwise(in_channels, out_channels, relu=True):
+    layers = []
+    layers.append(nn.Conv2d(in_channels,out_channels,1,1,0,bias=False))
+    layers.append(nn.BatchNorm2d(out_channels))
+    if relu:
+        layers.append(nn.ReLU(inplace=True))
+    return nn.Sequential(*layers)
 
 
 class Encoder(nn.Module):
@@ -139,7 +140,7 @@ class Decoder(nn.Module):
         self.decode_conv5 = nn.Sequential(
             depthwise(64, kernel_size),
             pointwise(64, 32))
-        self.decode_conv6 = pointwise(32, 1)
+        self.decode_conv6 = pointwise(32, 1, relu=False)
         self.sigmoid =  nn.Sigmoid()
 
         weights_init(self.decode_conv1)
