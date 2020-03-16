@@ -9,7 +9,8 @@ import os
 import hashlib
 import zipfile
 from six.moves import urllib
-import cv2
+import matplotlib as mpl
+import matplotlib.cm as cm
 import numpy as np
 import torch
 from tensorboard import program
@@ -50,11 +51,14 @@ def sec_to_hm_str(t):
     h, m, s = sec_to_hm(t)
     return "{:02d}h{:02d}m{:02d}s".format(h, m, s)
 
-def color_map(disparity, cmap='magma'):
-    numpy_disp = disparity.cpu().detach().numpy().squeeze()
-    colored_map = cv2.applyColorMap(np.uint8(numpy_disp), cmap)
-    chw_colored = np.transpose(colored_map, (2, 0, 1))
-    return chw_colored
+def color_map(x, cmap='magma'):
+    ma = float(x.max().cpu().data)
+    mi = float(x.min().cpu().data)
+    normalizer = mpl.colors.Normalize(vmin=mi, vmax=ma)
+    mapper = cm.ScalarMappable(norm=normalizer, cmap=cmap)
+    colormapped_im = (mapper.to_rgba(x.cpu().data[0])[:, :, :3] * 255).astype(np.uint8)
+    return np.transpose(colormapped_im,(2,0,1))
+
 
 def download_model_if_doesnt_exist(model_name):
     """If pretrained kitti model doesn't exist, download and unzip it
