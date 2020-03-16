@@ -124,7 +124,7 @@ class MonodepthOptions:
         self.parser.add_argument("--weights_init",
                                  type=str,
                                  help="pretrained or scratch",
-                                 default="pretrained",
+                                 default="scratch",
                                  choices=["pretrained", "scratch"])
         self.parser.add_argument("--pose_model_input",
                                  type=str,
