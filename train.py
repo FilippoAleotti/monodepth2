@@ -6,8 +6,8 @@
 
 from __future__ import absolute_import, division, print_function
 
-from trainer_kitti import Trainer as KITTI_Trainer
-from trainer_matterport import Trainer as MATTERPORT_Trainer
+from trainer_selfsupervised import Trainer as SELF_Trainer
+from trainer_supervised import Trainer as SUP_Trainer
 
 from options import MonodepthOptions
 
@@ -17,7 +17,7 @@ opts = options.parse()
 
 if __name__ == "__main__":
     if 'kitti' in opts.dataset:
-        trainer = KITTI_Trainer(opts)
+        trainer = SELF_Trainer(opts)
     else:
-        trainer = MATTERPORT_Trainer(opts)
+        trainer = SUP_Trainer(opts)
     trainer.train()
