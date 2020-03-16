@@ -106,10 +106,10 @@ class Decoder(nn.Module):
     def __init__(self, params):
         super(Decoder, self).__init__()
         self.params = params
-        self.num_output_channels = params['num_output_channels']
+        self.num_output_channels = value_or_default(params, 'num_output_channels', default=1)
         self.use_skips = value_or_default(params, 'use_skips', default=True)
         self.upsample_mode = 'nearest'
-        self.scales = valid_or_default(params, 'scales', default= range(4))
+        self.scales = value_or_default(params, 'scales', default= range(4))
 
         self.num_ch_enc = params['num_ch_enc']
         self.num_ch_dec = np.array([16, 32, 64, 128, 256])

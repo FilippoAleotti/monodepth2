@@ -4,7 +4,7 @@ from networks import pose
 
 ARCHITECTURE_FACTORY = {
     'pydnet': pydnet,
-    'monodepth2': resnet,
+    'resnet': resnet,
 }
 
 def get_encoder(architecture):
@@ -16,9 +16,6 @@ def get_decoder(architecture):
     AVAILABLE_ARCHITECTURES = ARCHITECTURE_FACTORY.keys()
     assert(architecture in AVAILABLE_ARCHITECTURES)
     return ARCHITECTURE_FACTORY[architecture].Decoder
-
-def get_pose_encoder():
-    return pose.Encoder
 
 
 def get_pose_decoder():
