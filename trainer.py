@@ -21,6 +21,8 @@ from layers import *
 import datasets
 from networks import factory
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+
 class Trainer:
     def __init__(self, options):
         self.opt = options
@@ -65,7 +67,8 @@ class Trainer:
         self.models["depth"] = factory.get_decoder(self.opt.architecture)(params=decoder_params)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
-
+        num_params = (count_parameters(self.models["depth"]) + count_parameters(self.models['encoder'])) / 1000000
+        print("=>  # Depth network parameters: {:.2f} M".format(num_params))
         if self.use_pose_net:
             print("=> building pose network (Resnet18)")
             pose_params = {
@@ -117,13 +120,13 @@ class Trainer:
 
         train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+            self.opt.frame_ids, self.opt.scales[-1]+1, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+            self.opt.frame_ids, self.opt.scales[-1]+1, is_train=False, img_ext=img_ext)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
@@ -180,6 +183,9 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
+        # NOTE: in pytorch 1.1.0 and later, first optimizer.step and then lr_scheduler.step
+        self.model_lr_scheduler.step()
+
         print("Training")
         self.set_train()
 
@@ -209,8 +215,7 @@ class Trainer:
                 self.val()
 
             self.step += 1
-        # NOTE: in pytorch 1.1.0 and later, first optimizer.step and then lr_scheduler.step
-        self.model_lr_scheduler.step()
+
 
 
     def process_batch(self, inputs):
@@ -219,7 +224,6 @@ class Trainer:
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
 
-        # Otherwise, we only feed the image with frame_id 0 through the depth encoder
         features = self.models["encoder"](inputs["color_aug", 0, 0])
         outputs = self.models["depth"](features)
 
@@ -359,7 +363,6 @@ class Trainer:
             reprojection_losses = []
             # target has same shape of input
             source_scale = 0
-
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
             target = inputs[("color", 0, source_scale)]

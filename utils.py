@@ -134,3 +134,7 @@ def run_tensorboard(logdir, port):
     tb = program.TensorBoard()
     tb.configure(argv=[None, '--logdir', logdir, '--bind_all','--port', str(port)])
     url = tb.launch()
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)

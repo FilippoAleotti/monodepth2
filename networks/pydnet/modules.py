@@ -14,13 +14,13 @@ def conv2d_leaky(channel_in, channel_out, kernel_size=3, stride=1, padding=1, di
         layers.append(nn.LeakyReLU(0.2))
     return nn.Sequential(*layers)
 
-def bilinear_upsampling_by_convolution(channel_in, channel_out, factor=2):
+def bilinear_upsampling_by_convolution(channel_in, factor=2):
     '''
         Upsampling the input using bilinear + conv by a desired factor
     '''
     return nn.Sequential(
         Bilinear(scale_factor=factor),
-        conv2d_leaky(channel_in, channel_out)
+        conv2d_leaky(channel_in, channel_in)
     )
 
 class Bilinear(nn.Module):
