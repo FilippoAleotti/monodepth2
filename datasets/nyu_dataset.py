@@ -78,8 +78,8 @@ class NYUDataset(data.Dataset):
     def __len__(self):
         return len(self.filenames)
 
-    def get_color(self, frame_id, do_flip):
-        color = self.loader(self.get_image_path(frame_id))
+    def get_color(self, frame_id, line, do_flip):
+        color = self.loader(self.get_image_path(frame_id, line))
 
         if do_flip:
             color = color.transpose(pil.FLIP_LEFT_RIGHT)
@@ -102,26 +102,11 @@ class NYUDataset(data.Dataset):
         do_color_aug = self.is_train and random.random() > 0.5
         do_flip = self.is_train and random.random() > 0.5
 
-        line = self.filenames[index].split()
-        rgb_img = self.get_color(index, do_flip)
-        depth_gt = self.get_depth(index, do_flip)
+        line = self.filenames[index].strip()
+
+        rgb_img = self.get_color(index, line, do_flip)
+        depth_gt = self.get_depth(index, line, do_flip)
         
-        transforms.CenterCrop((400, 520)),
-
-        """
-        s = np.random.uniform(1.0, 1.5) # random scaling
-        depth_np = depth / s
-        # same augmentation of FastDepth
-        transform = transforms.Compose([
-            transforms.Resize(250.0 / iheight), # this is for computational efficiency, since rotation can be slow
-            transforms.Rotate(angle),
-            transforms.Resize(s),
-            transforms.CenterCrop((228, 304)),
-            transforms.HorizontalFlip(do_flip),
-            transforms.Resize(self.output_size),
-        ])
-        """
-
         if do_color_aug:
             color_aug = transforms.ColorJitter.get_params(
                 self.brightness, self.contrast, self.saturation, self.hue)
@@ -132,15 +117,15 @@ class NYUDataset(data.Dataset):
 
         return inputs, targets
 
-    def get_image_path(self, frame_id, folder='rgb'):
+    def get_image_path(self, frame_id, line):
         f_str = "{:06d}{}".format(frame_id, self.img_ext)
-        image_path = os.path.join(self.data_path, folder, f_str)
+        image_path = os.path.join(self.data_path, 'rgb', f_str)
         return image_path
 
-    def get_depth(self, frame_id, do_flip, folder='depth'):
+    def get_depth(self, frame_id, line, do_flip):
         ''' NOTE: nyu depth are stored as npy files (no 16bit images) '''
         f_str = "{:06d}{}".format(frame_id, '.npy')
-        image_path = os.path.join(self.data_path, folder, f_str)
+        image_path = os.path.join(self.data_path, 'depth', f_str)
         depth_gt = np.load(image_path)
         #depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
         #depth_gt = np.array(depth_gt).astype(np.float32) / 256

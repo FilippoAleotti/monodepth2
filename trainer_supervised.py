@@ -67,10 +67,11 @@ class Trainer:
         print("Training is using:\n  ", self.device)
         run_tensorboard(logdir=self.opt.log_dir, port=self.opt.training_port)
         print('Tensorboard now running!')
-        
+
         # data
-        datasets_dict = {"matterport": datasets.MatterportDataset,
+        datasets_dict = {"diode": datasets.DIODEDataset,
                          "nyu": datasets.NYUDataset}
+        print("dataset => "+ self.opt.dataset)
         self.dataset = datasets_dict[self.opt.dataset]
         fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
 
@@ -260,8 +261,9 @@ class Trainer:
             for s in self.opt.scales:
                 writer.add_image("color/{}".format(j), inputs[("color")][j].data, self.step)
                 writer.add_image("color_aug/{}".format(j), inputs[("color_aug")][j].data, self.step)
-                writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='Spectral'), self.step)
-            writer.add_image("gt/{}".format(j), color_map(targets["depth"][j].data, cmap='Spectral'), self.step)
+                writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='jet'), self.step)
+            writer.add_image("gt/{}".format(j), color_map(targets["depth"][j].data, cmap='jet'), self.step)
+            writer.add_image("gt_mask/{}".format(j), (targets["depth"][j].data > 0)* 255, self.step)
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
