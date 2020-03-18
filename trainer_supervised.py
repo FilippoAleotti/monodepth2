@@ -19,7 +19,7 @@ from utils import *
 from layers import *
 import datasets
 from networks import factory
-from evaluate_supervised
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 
 class Trainer:
@@ -69,6 +69,9 @@ class Trainer:
         print('Tensorboard now running!')
         
         # data
+        datasets_dict = {"matterport": datasets.MatterportDataset,
+                         "nyu": datasets.NYUDataset}
+        self.dataset = datasets_dict[self.opt.dataset]
         fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
 
         train_filenames = readlines(fpath.format("train"))
@@ -78,12 +81,13 @@ class Trainer:
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        train_dataset = datasets.MATTERPORTDataset(
+        train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = datasets.MATTERPORTDataset(
+
+        val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width, is_train=False, img_ext=img_ext)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
@@ -132,11 +136,11 @@ class Trainer:
         print("Training")
         self.set_train()
 
-        for batch_idx, [inputs, gt] in enumerate(self.train_loader):
+        for batch_idx, [inputs, targets] in enumerate(self.train_loader):
 
             before_op_time = time.time()
 
-            outputs, losses = self.process_batch(inputs)
+            outputs, losses = self.process_batch(inputs, targets)
 
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
@@ -151,53 +155,45 @@ class Trainer:
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
 
-                self.compute_depth_losses(gt, outputs,  losses)
-
-                self.log("train", inputs, outputs, losses)
+                self.compute_depth_losses(targets, outputs,  losses)
+                self.log("train", inputs, outputs, targets, losses)
                 self.val()
 
             self.step += 1
-
 
     def process_batch(self, inputs, gt):
         """Pass a minibatch through the network and generate images and losses
         """
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
+        
+        for key, ipt in gt.items():
+            gt[key] = ipt.to(self.device)
 
-        features = self.models["encoder"](inputs["color_aug", 0, 0])
+        features = self.models["encoder"](inputs["color_aug"])
         outputs = self.models["depth"](features)
 
-        if self.opt.predictive_mask:
-            outputs["predictive_mask"] = self.models["predictive_mask"](features)
-
-
-        losses = self.compute_losses(outputs, gt)
-
+        losses = self.compute_losses(outputs, gt['depth'])
         return outputs, losses
-
 
     def val(self):
         """Validate the model on a single minibatch
         """
         self.set_eval()
         try:
-            inputs = self.val_iter.next()
+            inputs, targets = self.val_iter.next()
         except StopIteration:
             self.val_iter = iter(self.val_loader)
-            inputs = self.val_iter.next()
+            inputs, targets = self.val_iter.next()
 
         with torch.no_grad():
-            outputs, losses = self.process_batch(inputs)
-
-            if "depth_gt" in inputs:
-                self.compute_depth_losses(inputs, outputs, losses)
-
-            self.log("val", inputs, outputs, losses)
+            outputs, losses = self.process_batch(inputs, targets)
+            
+            self.compute_depth_losses(targets, outputs, losses)
+            self.log("val", inputs, outputs, targets, losses)
             del inputs, outputs, losses
 
         self.set_train()
-
 
     def compute_losses(self, outputs, gt):
         """Compute the loss error using HuBer 
@@ -209,7 +205,8 @@ class Trainer:
 
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
-            loss = F.smooth_l1_loss(disp[mask], gt[mask], size_average=True)
+            disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+            loss = F.smooth_l1_loss(disp[mask], gt[mask], reduction="mean")
             total_loss += loss
 
         total_loss /= self.num_scales
@@ -219,18 +216,16 @@ class Trainer:
     def compute_depth_losses(self, depth_gt, outputs, losses):
         """Compute depth metrics, to allow monitoring during training
         """
-        depth_pred = outputs[("depth", 0, 0)]
-        #depth_pred = torch.clamp(F.interpolate(
-        #    depth_pred, [375, 1242], mode="bilinear", align_corners=False), 1e-3, 80)
+        depth_pred = outputs[("disp", 0)]
         depth_pred = depth_pred.detach().data
-        gt = depth_gt.detach().data
-        for i in range(depth_pred[0]):
+        gt = depth_gt['depth'].detach().data
+        average_meter = AverageMeter()
+        for i in range(gt.shape[0]):
             pred_i = depth_pred[i,:,:,:]
-            gt_i = depth_gt[i,:,:,:]
-
+            gt_i = gt[i,:,:,:]
             result = Result()
             result.evaluate(pred_i, gt_i)
-            average_meter.update(result, gpu_time, data_time, input.size(0))
+            average_meter.update(result, pred_i.size(0))
             
         average=average_meter.average()
         losses = {
@@ -241,7 +236,6 @@ class Trainer:
             'Lg10': average.lg10
         }
         return losses
-
 
     def log_time(self, batch_idx, duration, loss):
         """Print a logging statement to the terminal
@@ -255,7 +249,7 @@ class Trainer:
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
-    def log(self, mode, inputs, outputs, losses):
+    def log(self, mode, inputs, outputs, targets, losses):
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
@@ -264,10 +258,10 @@ class Trainer:
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
-               
-                writer.add_image("color_{}/{}".format(s, j), inputs[("color", frame_id, s)][j].data, self.step)
-                writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='magma'), self.step)
-
+                writer.add_image("color/{}".format(j), inputs[("color")][j].data, self.step)
+                writer.add_image("color_aug/{}".format(j), inputs[("color_aug")][j].data, self.step)
+                writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='Spectral'), self.step)
+            writer.add_image("gt/{}".format(j), color_map(targets["depth"][j].data, cmap='Spectral'), self.step)
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with

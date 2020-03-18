@@ -57,6 +57,7 @@ def color_map(x, cmap='magma'):
     ma = float(x.max().cpu().data)
     mi = float(x.min().cpu().data)
     normalizer = mpl.colors.Normalize(vmin=mi, vmax=ma)
+    cmap  = cm.get_cmap(cmap)
     mapper = cm.ScalarMappable(norm=normalizer, cmap=cmap)
     colormapped_im = (mapper.to_rgba(x.cpu().data[0])[:, :, :3] * 255).astype(np.uint8)
     return np.transpose(colormapped_im,(2,0,1))
@@ -159,21 +160,18 @@ class Result(object):
         self.mse, self.rmse, self.mae = 0, 0, 0
         self.absrel, self.lg10 = 0, 0
         self.delta1, self.delta2, self.delta3 = 0, 0, 0
-        self.data_time, self.gpu_time = 0, 0
 
     def set_to_worst(self):
         self.irmse, self.imae = np.inf, np.inf
         self.mse, self.rmse, self.mae = np.inf, np.inf, np.inf
         self.absrel, self.lg10 = np.inf, np.inf
         self.delta1, self.delta2, self.delta3 = 0, 0, 0
-        self.data_time, self.gpu_time = 0, 0
 
-    def update(self, irmse, imae, mse, rmse, mae, absrel, lg10, delta1, delta2, delta3, gpu_time, data_time):
+    def update(self, irmse, imae, mse, rmse, mae, absrel, lg10, delta1, delta2, delta3):
         self.irmse, self.imae = irmse, imae
         self.mse, self.rmse, self.mae = mse, rmse, mae
         self.absrel, self.lg10 = absrel, lg10
         self.delta1, self.delta2, self.delta3 = delta1, delta2, delta3
-        self.data_time, self.gpu_time = data_time, gpu_time
 
     def evaluate(self, output, target):
         valid_mask = ((target>0) + (output>0)) > 0
@@ -192,8 +190,6 @@ class Result(object):
         self.delta1 = float((maxRatio < 1.25).float().mean())
         self.delta2 = float((maxRatio < 1.25 ** 2).float().mean())
         self.delta3 = float((maxRatio < 1.25 ** 3).float().mean())
-        self.data_time = 0
-        self.gpu_time = 0
 
         inv_output = 1 / output
         inv_target = 1 / target
@@ -215,9 +211,8 @@ class AverageMeter(object):
         self.sum_mse, self.sum_rmse, self.sum_mae = 0, 0, 0
         self.sum_absrel, self.sum_lg10 = 0, 0
         self.sum_delta1, self.sum_delta2, self.sum_delta3 = 0, 0, 0
-        self.sum_data_time, self.sum_gpu_time = 0, 0
 
-    def update(self, result, gpu_time, data_time, n=1):
+    def update(self, result, n=1):
         self.count += n
 
         self.sum_irmse += n*result.irmse
@@ -230,8 +225,6 @@ class AverageMeter(object):
         self.sum_delta1 += n*result.delta1
         self.sum_delta2 += n*result.delta2
         self.sum_delta3 += n*result.delta3
-        self.sum_data_time += n*data_time
-        self.sum_gpu_time += n*gpu_time
 
     def average(self):
         avg = Result()
@@ -239,6 +232,5 @@ class AverageMeter(object):
             self.sum_irmse / self.count, self.sum_imae / self.count,
             self.sum_mse / self.count, self.sum_rmse / self.count, self.sum_mae / self.count,
             self.sum_absrel / self.count, self.sum_lg10 / self.count,
-            self.sum_delta1 / self.count, self.sum_delta2 / self.count, self.sum_delta3 / self.count,
-            self.sum_gpu_time / self.count, self.sum_data_time / self.count)
+            self.sum_delta1 / self.count, self.sum_delta2 / self.count, self.sum_delta3 / self.count)
         return avg
