@@ -12,6 +12,7 @@ import numpy as np
 import PIL.Image as pil
 import numbers
 import random
+import cv2
 import torch
 import torch.utils.data as data
 from torchvision import transforms
@@ -37,10 +38,6 @@ class NYUDataset(data.Dataset):
         self.is_train = is_train
         self.img_ext = img_ext
         
-        # raw image size
-        self.iheight = 480
-        self.iwidth  = 640
-
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()
 
@@ -58,20 +55,20 @@ class NYUDataset(data.Dataset):
             self.contrast = 0.2
             self.saturation = 0.2
             self.hue = 0.1
-        self.crop = RandomCrop(size=(self.height, self.width))
+        self.resize_img =  transforms.Resize((self.height, self.width), interpolation=self.interp)
+        self.resize_depth =  cv2.resize
 
     def preprocess(self, rgb_img, depth_gt, color_aug):
         """Crop colour images and gt and augment if required
         """
         inputs = {}
         targets = {}
-        imgs, gts = self.crop([rgb_img], [depth_gt])
-        cropped_img = imgs[0]
-        cropped_depth = gts[0] 
-        gt = np.asanyarray(cropped_depth).astype(np.float32)
-        gt = np.expand_dims(gt, -1)
-        inputs['color'] = self.to_tensor(cropped_img)
-        inputs['color_aug'] = self.to_tensor(color_aug(cropped_img))
+        h, w = depth_gt.squeeze().shape
+        depth_gt = self.resize_depth(depth_gt, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
+        rgb_img = self.resize_img(rgb_img)
+        gt = np.expand_dims(depth_gt, -1)
+        inputs['color'] = self.to_tensor(rgb_img)
+        inputs['color_aug'] = self.to_tensor(color_aug(rgb_img))
         targets['depth'] = self.to_tensor(gt)
         return inputs, targets
 
@@ -127,34 +124,7 @@ class NYUDataset(data.Dataset):
         f_str = "{:06d}{}".format(frame_id, '.npy')
         image_path = os.path.join(self.data_path, 'depth', f_str)
         depth_gt = np.load(image_path)
-        #depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
-        #depth_gt = np.array(depth_gt).astype(np.float32) / 256
         if do_flip:
             depth_gt = np.fliplr(depth_gt)
 
         return depth_gt
-
-class RandomCrop(object):
-    """Crops the given PIL.Image at a random location to have a region of
-    the given size. size can be a tuple (target_height, target_width)
-    or an integer, in which case the target will be of a square shape (size, size)
-    """
-
-    def __init__(self, size):
-        if isinstance(size, numbers.Number):
-            self.size = (int(size), int(size))
-        else:
-            self.size = size
-
-    def __call__(self, inputs, targets):
-        w, h = inputs[0].size
-        th, tw = self.size
-        if w == tw and h == th:
-            return inputs,target
-
-        x1 = random.randint(0, w - tw)
-        y1 = random.randint(0, h - th)
-        inputs = [Image.fromarray(np.array(inp)[y1: y1 + th,x1: x1 + tw, :]) for inp in inputs]
-        if targets is not None: 
-            targets = [Image.fromarray(np.array(t)[y1: y1 + th,x1: x1 + tw]) for t in targets]
-        return inputs, targets

@@ -58,6 +58,7 @@ def color_map(x, cmap='magma'):
     mi = float(x.min().cpu().data)
     normalizer = mpl.colors.Normalize(vmin=mi, vmax=ma)
     cmap  = cm.get_cmap(cmap)
+    cmap.set_bad(color='black')
     mapper = cm.ScalarMappable(norm=normalizer, cmap=cmap)
     colormapped_im = (mapper.to_rgba(x.cpu().data[0])[:, :, :3] * 255).astype(np.uint8)
     return np.transpose(colormapped_im,(2,0,1))
@@ -234,3 +235,7 @@ class AverageMeter(object):
             self.sum_absrel / self.count, self.sum_lg10 / self.count,
             self.sum_delta1 / self.count, self.sum_delta2 / self.count, self.sum_delta3 / self.count)
         return avg
+
+def create_dir(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
