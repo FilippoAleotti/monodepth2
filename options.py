@@ -201,6 +201,9 @@ class MonodepthOptions:
                                  help="if set will perform the flipping post processing "
                                       "from the original monodepth paper",
                                  action="store_true")
+        self.parser.add_argument("--prediction_scale",
+                                 help="which scale use at testing time?",
+                                 type=int)
 
     def parse(self):
         self.options = self.parser.parse_args()

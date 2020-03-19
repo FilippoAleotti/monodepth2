@@ -8,10 +8,10 @@ import torch
 from torch.utils.data import DataLoader
 
 from layers import disp_to_depth
-from utils import readlines
+from utils import readlines, count_parameters
 from options import MonodepthOptions
 import datasets
-import networks
+from networks import factory
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
@@ -77,7 +77,6 @@ def evaluate(opt):
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
         encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
-
         encoder_dict = torch.load(encoder_path)
 
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
@@ -85,9 +84,17 @@ def evaluate(opt):
                                            [0], 4, is_train=False)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
-
-        encoder = networks.ResnetEncoder(opt.num_layers, False)
-        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
+        
+        encoder_params = {
+            'num_layers': opt.num_layers,
+            'pretrained': False
+        }
+        encoder = factory.get_encoder(opt.architecture)(params=encoder_params)
+        decoder_params = {
+            'num_ch_enc': encoder.num_ch_enc,
+            'supervised': False
+        }
+        depth_decoder = factory.get_decoder(opt.architecture)(params=decoder_params)
 
         model_dict = encoder.state_dict()
         encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
@@ -113,7 +120,7 @@ def evaluate(opt):
 
                 output = depth_decoder(encoder(input_color))
 
-                pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+                pred_disp, _ = disp_to_depth(output[("disp", opt.prediction_scale)], opt.min_depth, opt.max_depth)
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
 
                 if opt.post_process:
@@ -163,7 +170,7 @@ def evaluate(opt):
         quit()
 
     gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
-    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1', allow_pickle=True)["data"]
 
     print("-> Evaluating")
 
@@ -219,9 +226,10 @@ def evaluate(opt):
         print(" Scaling ratios | med: {:0.3f} | std: {:0.3f}".format(med, np.std(ratios / med)))
 
     mean_errors = np.array(errors).mean(0)
-
-    print("\n  " + ("{:>8} | " * 7).format("abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
-    print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
+    print("Evaluation results for {} ckpt {}".format(opt.architecture, opt.load_weights_folder))
+    num_params = (count_parameters(depth_decoder) + count_parameters(encoder)) / 1000000
+    print("\n  " + ("{:>8} | " * 8).format("params", "abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
+    print(("&{: 8.3f}  " * 7).format(num_params, *mean_errors.tolist()) + "\\\\")
     print("\n-> Done!")
 
 

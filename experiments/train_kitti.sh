@@ -5,8 +5,8 @@
 arch="mobilenet"
 extra=""
 logs="./logs"
-#kitti="/media/filippo/nvme/ComputerVision/Dataset/FULL_KITTI"
-kitti="/media/faleotti/SSD/FULL_KITTI"
+kitti="/media/filippo/nvme/ComputerVision/Dataset/FULL_KITTI"
+#kitti="/media/faleotti/SSD/FULL_KITTI"
 stereo=1
 
 if [[ $stereo -eq 1 ]]; 
