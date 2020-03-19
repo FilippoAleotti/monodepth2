@@ -207,7 +207,8 @@ class Trainer:
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
             disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-            loss = F.smooth_l1_loss(disp[mask], gt[mask], reduction="mean")
+            inverse_depth = 1 / gt[mask]
+            loss = F.smooth_l1_loss(disp[mask], inverse_depth, reduction="mean")
             total_loss += loss
 
         total_loss /= self.num_scales
@@ -224,8 +225,9 @@ class Trainer:
         for i in range(gt.shape[0]):
             pred_i = depth_pred[i,:,:,:]
             gt_i = gt[i,:,:,:]
+            mask_i = gt_i > 0
             result = Result()
-            result.evaluate(pred_i, gt_i)
+            result.evaluate(pred_i[mask_i], 1/gt_i[mask_i])
             average_meter.update(result, pred_i.size(0))
             
         average=average_meter.average()

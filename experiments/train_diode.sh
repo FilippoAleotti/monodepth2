@@ -5,8 +5,8 @@ arch="resnet"
 #arch="mobilenet"
 extra=""
 logs="./logs"
-dataset="/media/filippo/nvme/ComputerVision/Dataset/DIODE"
-#dataset="/media/faleotti/SSD/NYUv2"
+#dataset="/media/filippo/nvme/ComputerVision/Dataset/DIODE"
+dataset="/media/faleotti/Storage1/DIODE"
 stereo=1
 
 if [[ $arch == 'mobilenet' ]];
@@ -25,5 +25,6 @@ python train.py --architecture $arch   \
                 --split diode \
                 --dataset diode \
                 --png \
-                --width 640  --height 448 \
+                --width 768  --height 576 \
                 $extra
+
