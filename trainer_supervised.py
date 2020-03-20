@@ -174,7 +174,7 @@ class Trainer:
         features = self.models["encoder"](inputs["color_aug"])
         outputs = self.models["depth"](features)
 
-        losses = self.compute_losses(outputs, gt['inverse_depth'])
+        losses = self.compute_losses(outputs, gt)
         return outputs, losses
 
     def val(self):
@@ -201,13 +201,13 @@ class Trainer:
         """
         losses = {}
         total_loss = 0
-        mask = gt > 0
+        mask = gt['mask']
         mask.detach_()
 
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
             disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-            loss = F.smooth_l1_loss(disp[mask], gt, reduction="mean")
+            loss = F.smooth_l1_loss(disp[mask], gt['inverse_depth'], reduction="mean")
             total_loss += loss
 
         total_loss /= self.num_scales
@@ -220,11 +220,12 @@ class Trainer:
         depth_pred = outputs[("disp", 0)]
         depth_pred = depth_pred.detach().data
         gt = depth_gt['inverse_depth'].detach().data
+        mask = depth_gt['mask'].detach().data
         average_meter = AverageMeter()
         for i in range(gt.shape[0]):
             pred_i = depth_pred[i,:,:,:]
             gt_i = gt[i,:,:,:]
-            mask_i = gt_i > 0
+            mask_i = mask[i,:,:,:]
             result = Result()
             result.evaluate(pred_i[mask_i], 1/gt_i[mask_i])
             average_meter.update(result, pred_i.size(0))
