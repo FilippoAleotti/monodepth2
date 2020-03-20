@@ -12,33 +12,59 @@ import collections
 import math
 import numpy as np
 import torch.nn.functional as F
-import networks.fastdepth.imagenet as imagenet
 
-class Identity(nn.Module):
-    # a dummy identity module
-    def __init__(self):
-        super(Identity, self).__init__()
+class MobileNet(nn.Module):
+    def __init__(self, relu6=True):
+        super(MobileNet, self).__init__()
+
+        def relu(relu6):
+            if relu6:
+                return nn.ReLU6(inplace=True)
+            else:
+                return nn.ReLU(inplace=True)
+
+        def conv_bn(inp, oup, stride, relu6):
+            return nn.Sequential(
+                nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+                nn.BatchNorm2d(oup),
+                relu(relu6),
+            )
+
+        def conv_dw(inp, oup, stride, relu6):
+            return nn.Sequential(
+                nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False),
+                nn.BatchNorm2d(inp),
+                relu(relu6),
+    
+                nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(oup),
+                relu(relu6),
+            )
+
+        self.model = nn.Sequential(
+            conv_bn(  3,  32, 2, relu6), 
+            conv_dw( 32,  64, 1, relu6),
+            conv_dw( 64, 128, 2, relu6),
+            conv_dw(128, 128, 1, relu6),
+            conv_dw(128, 256, 2, relu6),
+            conv_dw(256, 256, 1, relu6),
+            conv_dw(256, 512, 2, relu6),
+            conv_dw(512, 512, 1, relu6),
+            conv_dw(512, 512, 1, relu6),
+            conv_dw(512, 512, 1, relu6),
+            conv_dw(512, 512, 1, relu6),
+            conv_dw(512, 512, 1, relu6),
+            conv_dw(512, 1024, 2, relu6),
+            conv_dw(1024, 1024, 1, relu6),
+            nn.AvgPool2d(7),
+        )
+        self.fc = nn.Linear(1024, 1000)
 
     def forward(self, x):
+        x = self.model(x)
+        x = x.view(-1, 1024)
+        x = self.fc(x)
         return x
-
-class Unpool(nn.Module):
-    # Unpool: 2*2 unpooling with zero padding
-    def __init__(self, stride=2):
-        super(Unpool, self).__init__()
-
-        self.stride = stride
-
-        # create kernel [1, 0; 0, 0]
-        self.mask = torch.zeros(1, 1, stride, stride)
-        self.mask[:,:,0,0] = 1
-
-    def forward(self, x):
-        assert x.dim() == 4
-        num_channels = x.size(1)
-        return F.conv_transpose2d(x,
-            self.mask.detach().type_as(x).expand(num_channels, 1, -1, -1),
-            stride=self.stride, groups=num_channels)
 
 def weights_init(m):
     # Initialize kernel weights with Gaussian distributions
@@ -67,64 +93,56 @@ def depthwise(in_channels, kernel_size):
         )
 
 
-def pointwise(in_channels, out_channels, relu=True):
-    layers = []
-    layers.append(nn.Conv2d(in_channels,out_channels,1,1,0,bias=False))
-    layers.append(nn.BatchNorm2d(out_channels))
-    if relu:
-        layers.append(nn.ReLU(inplace=True))
-    return nn.Sequential(*layers)
+def pointwise(in_channels, out_channels):
+    return nn.Sequential(
+          nn.Conv2d(in_channels,out_channels,1,1,0,bias=False),
+          nn.BatchNorm2d(out_channels),
+          nn.ReLU(inplace=True),
+        )
+
+
+def final_pointwise(in_channels, out_channels):
+    return nn.Sequential(
+          nn.Conv2d(in_channels,out_channels,1,1,0,bias=False),
+          nn.BatchNorm2d(out_channels)
+        )
 
 
 class Encoder(nn.Module):
     def __init__(self, params):
         super(Encoder, self).__init__()
-        #self.output_size = params['output_size']
-        self.num_ch_enc = np.array([3,32,64,128,128,256,256,512,512,512,512,512,512,1024])
-        pretrained = params['pretrained']
-        mobilenet = imagenet.MobileNet()
-        if pretrained:
-            raise ValueError('Not available yet...')
-            pretrained_path = os.path.join('imagenet', 'results', 'imagenet.arch=mobilenet.lr=0.1.bs=256', 'model_best.pth.tar')
-            checkpoint = torch.load(pretrained_path)
-            state_dict = checkpoint['state_dict']
-
-            from collections import OrderedDict
-            new_state_dict = OrderedDict()
-            for k, v in state_dict.items():
-                name = k[7:]
-                new_state_dict[name] = v
-            mobilenet.load_state_dict(new_state_dict)
-        else:
-            mobilenet.apply(weights_init)
-
+        self.num_ch_enc = np.array([32,64,128,128,256,256,512,512,512,512,512,512,1024, 1024])
+        mobilenet = MobileNet()
+        mobilenet.apply(weights_init)
         for i in range(14):
             setattr( self, 'conv{}'.format(i), mobilenet.model[i])
-
 
     def forward(self, x):
         for i in range(14):
             layer = getattr(self, 'conv{}'.format(i))
             x = layer(x)
+            # print("{}: {}".format(i, x.size()))
             if i==1:
                 x1 = x
             elif i==3:
                 x2 = x
             elif i==5:
                 x3 = x
+        
         features = {
+            'x': x,
             'x1': x1,
             'x2': x2,
-            'x3': x3,
-            'x': x
+            'x3': x3
         }
         return features
+
 
 class Decoder(nn.Module):
     def __init__(self, params):
         super(Decoder, self).__init__()
-        self.params = params
         kernel_size = 5
+        self.params = params
         self.decode_conv1 = nn.Sequential(
             depthwise(1024, kernel_size),
             pointwise(1024, 512))
@@ -140,18 +158,14 @@ class Decoder(nn.Module):
         self.decode_conv5 = nn.Sequential(
             depthwise(64, kernel_size),
             pointwise(64, 32))
-        self.decode_conv6 = pointwise(32, 1, relu=False)
-        self.sigmoid =  nn.Sigmoid()
-
+        self.decode_conv6 = final_pointwise(32, 1)
         weights_init(self.decode_conv1)
         weights_init(self.decode_conv2)
         weights_init(self.decode_conv3)
         weights_init(self.decode_conv4)
         weights_init(self.decode_conv5)
         weights_init(self.decode_conv6)
-
-
-
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, features):
         x = features['x']
@@ -159,19 +173,22 @@ class Decoder(nn.Module):
             layer = getattr(self, 'decode_conv{}'.format(i))
             x = layer(x)
             x = F.interpolate(x, scale_factor=2, mode='nearest')
+            """
             if i==4:
                 x = x + features['x1']
             elif i==3:
                 x = x + features['x2']
             elif i==2:
                 x = x + features['x3']
-        x = self.decode_conv6(x)
-        if self.params['supervised'] == False:
-            x = self.sigmoid(x)
-
+            """
+            if i==4:
+                x = torch.cat((x, features['x1']), 1)
+            elif i==3:
+                x = torch.cat((x, features['x2']), 1)
+            elif i==2:
+                x = torch.cat((x, features['x3']), 1)
+        x = self.sigmoid(self.decode_conv6(x) / 10.)
         self.outputs = {}
         assert self.params['scales'] == [0], 'MobileNet outputs a single depth! No multiple scales are allowed'
         self.outputs[("disp", 0)] = x
         return self.outputs
-
-
