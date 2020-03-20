@@ -174,7 +174,7 @@ class Trainer:
         features = self.models["encoder"](inputs["color_aug"])
         outputs = self.models["depth"](features)
 
-        losses = self.compute_losses(outputs, gt['depth'])
+        losses = self.compute_losses(outputs, gt['inverse_depth'])
         return outputs, losses
 
     def val(self):
@@ -207,8 +207,7 @@ class Trainer:
         for scale in self.opt.scales:
             disp = outputs[("disp", scale)]
             disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-            inverse_depth = 1 / gt[mask]
-            loss = F.smooth_l1_loss(disp[mask], inverse_depth, reduction="mean")
+            loss = F.smooth_l1_loss(disp[mask], gt, reduction="mean")
             total_loss += loss
 
         total_loss /= self.num_scales
@@ -220,7 +219,7 @@ class Trainer:
         """
         depth_pred = outputs[("disp", 0)]
         depth_pred = depth_pred.detach().data
-        gt = depth_gt['depth'].detach().data
+        gt = depth_gt['inverse_depth'].detach().data
         average_meter = AverageMeter()
         for i in range(gt.shape[0]):
             pred_i = depth_pred[i,:,:,:]
@@ -264,8 +263,8 @@ class Trainer:
                 writer.add_image("color/{}".format(j), inputs[("color")][j].data, self.step)
                 writer.add_image("color_aug/{}".format(j), inputs[("color_aug")][j].data, self.step)
                 writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='jet'), self.step)
-            writer.add_image("gt/{}".format(j), color_map(targets["depth"][j].data, cmap='jet'), self.step)
-            writer.add_image("gt_mask/{}".format(j), (targets["depth"][j].data > 0)* 255, self.step)
+            writer.add_image("gt/{}".format(j), color_map(targets["inverse_depth"][j].data, cmap='jet'), self.step)
+            writer.add_image("gt_mask/{}".format(j), (targets["inverse_depth"][j].data > 0)* 255, self.step)
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with

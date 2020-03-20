@@ -70,6 +70,7 @@ class NYUDataset(data.Dataset):
         inputs['color'] = self.to_tensor(rgb_img)
         inputs['color_aug'] = self.to_tensor(color_aug(rgb_img))
         targets['depth'] = self.to_tensor(gt)
+        targets['inverse_depth'] = self.to_tensor(1/gt)
         return inputs, targets
 
     def __len__(self):
