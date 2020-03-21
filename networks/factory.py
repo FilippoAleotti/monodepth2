@@ -1,12 +1,14 @@
 from networks.monodepth2 import resnet
 from networks.pydnet import pydnet
 from networks.fastdepth import mobilenet
+from networks.omeganet import dsnet
 from networks import pose
 
 ARCHITECTURE_FACTORY = {
     'pydnet': pydnet,
     'resnet': resnet,
-    'mobilenet': mobilenet
+    'mobilenet': mobilenet,
+    'dsnet': dsnet
 }
 
 def get_encoder(architecture):
