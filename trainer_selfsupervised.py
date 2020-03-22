@@ -199,6 +199,7 @@ class Trainer:
 
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
+            #plot_grad_flow(self.models['depth'].named_parameters())
             self.model_optimizer.step()
 
             duration = time.time() - before_op_time
@@ -504,6 +505,10 @@ class Trainer:
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
                     color_map(outputs[("disp", s)][j], cmap='magma'), self.step)
+                
+                writer.add_image(
+                    "depth_{}/{}".format(s, j),
+                    color_map(outputs[("depth", 0, s)][j], cmap='magma'), self.step)
 
                 if self.opt.predictive_mask:
                     for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
