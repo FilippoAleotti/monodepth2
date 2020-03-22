@@ -69,10 +69,7 @@ class Decoder(nn.Module):
         self.scales = value_or_default(params, 'scales', default= range(3,0,-1))
         num_ch = 16
 
-        self.depth_upsampling_5 = self.depth_upsampling()
-        self.depth_upsampling_4 = self.depth_upsampling()
-        self.depth_upsampling_3 = self.depth_upsampling()
-        self.depth_upsampling_2 = self.depth_upsampling()
+        self.up_disp = self.disp_upsampling()
 
         self.upsample_features_5 = self.feature_upsampling(num_ch)
         self.upsample_features_4 = self.feature_upsampling(num_ch)
@@ -96,31 +93,31 @@ class Decoder(nn.Module):
     def forward(self, encoder_features):
         encoder_features_5, encoder_features_4, encoder_features_3, encoder_features_2, encoder_features_1 = encoder_features
 
-        estimator_5   = self.estimator_5(encoder_features_5)
+        estimator_5 = self.estimator_5(encoder_features_5)
         disp_5 = self.get_disp_5(estimator_5)
-        up_disp_5 = self.depth_upsampling_5(disp_5)
+        up_disp_5 = self.up_disp(disp_5)
         up_feat_5 = self.upsample_features_5(estimator_5)
 
         features_4 = torch.cat((encoder_features_4, up_feat_5), 1)
-        estimator_4   = self.estimator_4(features_4)
+        estimator_4 = self.estimator_4(features_4)
         disp_4 = self.get_disp_4(estimator_4) + up_disp_5
-        up_disp_4 = self.depth_upsampling_4(disp_4)
+        up_disp_4 = self.up_disp(disp_4)
         up_feat_4 = self.upsample_features_4(estimator_4)
 
         features_3 = torch.cat((encoder_features_3, up_feat_4), 1)
-        estimator_3   = self.estimator_3(features_3)
+        estimator_3 = self.estimator_3(features_3)
         disp_3 = self.get_disp_3(estimator_3) + up_disp_4
-        up_disp_3 = self.depth_upsampling_3(disp_3)
+        up_disp_3 = self.up_disp(disp_3)
         up_feat_3 = self.upsample_features_3(estimator_3)
 
         features_2 = torch.cat((encoder_features_2, up_feat_3), 1)
-        estimator_2   = self.estimator_2(features_2)
+        estimator_2 = self.estimator_2(features_2)
         disp_2 = self.get_disp_3(estimator_2) + up_disp_3
-        up_disp_2 = self.depth_upsampling_2(disp_2)
+        up_disp_2 = self.up_disp(disp_2)
         up_feat_2 = self.upsample_features_2(estimator_2)
 
         features_1 = torch.cat((encoder_features_1, up_feat_2), 1)
-        estimator_1   = self.estimator_1(features_1)
+        estimator_1 = self.estimator_1(features_1)
         disp_1 = self.get_disp_1(estimator_1) + up_disp_2
 
         predictions = [None, disp_1, disp_2, disp_3, disp_4, disp_5]
@@ -131,7 +128,6 @@ class Decoder(nn.Module):
                 self.outputs[("disp", i)] = predictions[i]
         return self.outputs
 
-
     def feature_upsampling(self, inp):
         return nn.Sequential(
             Up(mode='nearest'),
@@ -141,17 +137,8 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-
-    def depth_upsampling(self):
+    def disp_upsampling(self):
         return Up(mode='bilinear')
-
-
-    def get_current_size(self, previous_disp):
-        '''
-            Given previous disparity, get current disparity size [h,w]
-        '''
-        previous_shape = get_size(previous_disp)
-        return [x*2 for x in previous_shape]
 
 
     def conv_block(self, inp, out):
@@ -161,7 +148,6 @@ class Decoder(nn.Module):
             nn.BatchNorm2d(out),
             nn.ReLU(inplace=True)
         )
-
 
     def estimator(self, inp):
         '''

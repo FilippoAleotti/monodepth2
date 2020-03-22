@@ -44,7 +44,7 @@ class Trainer:
         assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
 
         self.use_pose_net = not (self.opt.use_stereo and self.opt.frame_ids == [0])
-
+        print("** use posenet: {}".format(self.use_pose_net))
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
@@ -74,25 +74,22 @@ class Trainer:
             print("=> building pose network (Resnet18)")
             pose_params = {
                 'num_layers': self.opt.num_layers,
-                'pretrained': self.opt.weights_init == "pretrained",
+                'pretrained': False,
                 'num_input_images': self.num_pose_frames
             }
             self.models["pose_encoder"] = factory.get_encoder('resnet')(params=pose_params)
+            self.models["pose_encoder"].to(self.device)
+            self.parameters_to_train += list(self.models["pose_encoder"].parameters())
+
+            pose_dec_params = {
+                'num_ch_enc': self.models["pose_encoder"].num_ch_enc,
+                'num_input_features': 1,
+                'num_frames_to_predict_for':2
+            }
+            self.models["pose"] = factory.get_pose_decoder()(params=pose_dec_params)
             self.models["pose"].to(self.device)
             self.parameters_to_train += list(self.models["pose"].parameters())
-
-        if self.opt.predictive_mask:
-            assert self.opt.disable_automasking, \
-                "When using predictive_mask, please disable automasking with --disable_automasking"
-
-            # Our implementation of the predictive masking baseline has the the same architecture
-            # as our depth decoder. We predict a separate mask for each source frame.
-            self.models["predictive_mask"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales,
-                num_output_channels=(len(self.opt.frame_ids) - 1))
-            self.models["predictive_mask"].to(self.device)
-            self.parameters_to_train += list(self.models["predictive_mask"].parameters())
-
+        
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)

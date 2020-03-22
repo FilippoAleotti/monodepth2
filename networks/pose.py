@@ -12,21 +12,18 @@ from collections import OrderedDict
 
 
 class Decoder(nn.Module):
-    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1):
+    def __init__(self, params):
         super(Decoder, self).__init__()
-
-        self.num_ch_enc = num_ch_enc
-        self.num_input_features = num_input_features
-
-        if num_frames_to_predict_for is None:
-            num_frames_to_predict_for = num_input_features - 1
-        self.num_frames_to_predict_for = num_frames_to_predict_for
+        self.stride=1
+        self.num_ch_enc = params['num_ch_enc']
+        self.num_input_features = params['num_input_features']
+        self.num_frames_to_predict_for = params['num_frames_to_predict_for']
 
         self.convs = OrderedDict()
         self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
-        self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
-        self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)
-        self.convs[("pose", 2)] = nn.Conv2d(256, 6 * num_frames_to_predict_for, 1)
+        self.convs[("pose", 0)] = nn.Conv2d(self.num_input_features * 256, 256, 3, self.stride, 1)
+        self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, self.stride, 1)
+        self.convs[("pose", 2)] = nn.Conv2d(256, 6 *self.num_frames_to_predict_for, 1)
 
         self.relu = nn.ReLU()
 
