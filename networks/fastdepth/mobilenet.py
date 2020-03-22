@@ -104,7 +104,8 @@ def pointwise(in_channels, out_channels):
 def final_pointwise(in_channels, out_channels):
     return nn.Sequential(
           nn.Conv2d(in_channels,out_channels,1,1,0,bias=False),
-          nn.BatchNorm2d(out_channels)
+          nn.BatchNorm2d(out_channels),
+          nn.Sigmoid()
         )
 
 
@@ -165,7 +166,6 @@ class Decoder(nn.Module):
         weights_init(self.decode_conv4)
         weights_init(self.decode_conv5)
         weights_init(self.decode_conv6)
-        self.sigmoid = nn.Sigmoid()
 
     def forward(self, features):
         x = features['x']
@@ -173,21 +173,13 @@ class Decoder(nn.Module):
             layer = getattr(self, 'decode_conv{}'.format(i))
             x = layer(x)
             x = F.interpolate(x, scale_factor=2, mode='nearest')
-            """
             if i==4:
                 x = x + features['x1']
             elif i==3:
                 x = x + features['x2']
             elif i==2:
                 x = x + features['x3']
-            """
-            if i==4:
-                x = torch.cat((x, features['x1']), 1)
-            elif i==3:
-                x = torch.cat((x, features['x2']), 1)
-            elif i==2:
-                x = torch.cat((x, features['x3']), 1)
-        x = self.sigmoid(self.decode_conv6(x) / 10.)
+        x = self.decode_conv6(x)
         self.outputs = {}
         assert self.params['scales'] == [0], 'MobileNet outputs a single depth! No multiple scales are allowed'
         self.outputs[("disp", 0)] = x
