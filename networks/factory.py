@@ -21,6 +21,5 @@ def get_decoder(architecture):
     assert(architecture in AVAILABLE_ARCHITECTURES)
     return ARCHITECTURE_FACTORY[architecture].Decoder
 
-
 def get_pose_decoder():
     return pose.Decoder

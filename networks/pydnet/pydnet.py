@@ -52,9 +52,6 @@ class Encoder(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
 
 
 class Decoder(nn.Module):
@@ -126,22 +123,6 @@ class Decoder(nn.Module):
         return self.outputs
 
 
-    def get_current_size(self, previous_disp):
-        '''
-            Given previous disparity, get current disparity size [h,w]
-        '''
-        previous_shape = get_size(previous_disp)
-        return [x*2 for x in previous_shape]
-
-
-    def upsample_previous_prediction(self, prediction, desired_shape):
-        '''
-            Upsample previous prediction
-        '''
-        previous_upsampled = nn.functional.interpolate(prediction, size=desired_shape, mode='bilinear', align_corners=False)
-        return previous_upsampled
-
-
     def estimator(self, channel_in):
         '''
             Shared estimator specification
@@ -175,6 +156,3 @@ class Decoder(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)

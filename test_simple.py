@@ -18,10 +18,12 @@ import matplotlib.cm as cm
 import torch
 from torchvision import transforms, datasets
 
-import networks
+from networks import factory
 from layers import disp_to_depth
-from utils import download_model_if_doesnt_exist
+from utils import download_model_if_doesnt_exist, create_dir
+import cv2
 
+STEREO_SCALE_FACTOR = 5.4
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -40,13 +42,15 @@ def parse_args():
                             "mono+stereo_no_pt_640x192",
                             "mono_1024x320",
                             "stereo_1024x320",
-                            "mono+stereo_1024x320"])
+                            "mono+stereo_1024x320"],
+                            default="mono+stereo_1024x320")
     parser.add_argument('--ext', type=str,
                         help='image extension to search for in folder', default="jpg")
     parser.add_argument("--no_cuda",
                         help='if set, disables CUDA',
                         action='store_true')
-
+    parser.add_argument('--dest', type=str,
+                        help='destination folder', default="KITTI_odometry")
     return parser.parse_args()
 
 
@@ -69,7 +73,11 @@ def test_simple(args):
 
     # LOADING PRETRAINED MODEL
     print("   Loading pretrained encoder")
-    encoder = networks.ResnetEncoder(18, False)
+    encoder_params = {
+            'num_layers': 18,
+            'pretrained': False
+    }
+    encoder = factory.get_encoder('resnet')(encoder_params)
     loaded_dict_enc = torch.load(encoder_path, map_location=device)
 
     # extract the height and width of image that this model was trained with
@@ -81,8 +89,11 @@ def test_simple(args):
     encoder.eval()
 
     print("   Loading pretrained decoder")
-    depth_decoder = networks.DepthDecoder(
-        num_ch_enc=encoder.num_ch_enc, scales=range(4))
+    decoder_params = {
+            'num_ch_enc': encoder.num_ch_enc,
+            'supervised': False
+    }
+    depth_decoder = factory.get_decoder('resnet')(decoder_params)
 
     loaded_dict = torch.load(depth_decoder_path, map_location=device)
     depth_decoder.load_state_dict(loaded_dict)
@@ -105,6 +116,7 @@ def test_simple(args):
     print("-> Predicting on {:d} test images".format(len(paths)))
 
     # PREDICTING ON EACH IMAGE IN TURN
+    create_dir(args.dest)
     with torch.no_grad():
         for idx, image_path in enumerate(paths):
 
@@ -135,15 +147,21 @@ def test_simple(args):
 
             # Saving colormapped depth image
             disp_resized_np = disp_resized.squeeze().cpu().numpy()
+            pred_depth = 1 / disp_resized_np
+            pred_depth *= STEREO_SCALE_FACTOR 
+            name_dest_im = os.path.join(args.dest, "{}_depth.png".format(output_name))
+            pred_depth = np.clip(pred_depth, 0.1, 100.0)
+            cv2.imwrite(name_dest_im, (pred_depth * 256).astype(np.uint16))
+            """
             vmax = np.percentile(disp_resized_np, 95)
             normalizer = mpl.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
             mapper = cm.ScalarMappable(norm=normalizer, cmap='magma')
             colormapped_im = (mapper.to_rgba(disp_resized_np)[:, :, :3] * 255).astype(np.uint8)
             im = pil.fromarray(colormapped_im)
 
-            name_dest_im = os.path.join(output_directory, "{}_disp.jpeg".format(output_name))
+            name_dest_im = os.path.join(args.dest, "{}_disp.png".format(output_name))
             im.save(name_dest_im)
-
+            """
             print("   Processed {:d} of {:d} images - saved prediction to {}".format(
                 idx + 1, len(paths), name_dest_im))
 

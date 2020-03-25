@@ -8,10 +8,12 @@ import torch
 from torch.utils.data import DataLoader
 
 from layers import disp_to_depth
-from utils import readlines, count_parameters
+from utils import readlines, count_parameters, color_map, create_dir
 from options import MonodepthOptions
 import datasets
 from networks import factory
+import matplotlib.pyplot as plt
+import time
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
@@ -23,6 +25,11 @@ splits_dir = os.path.join(os.path.dirname(__file__), "splits")
 # to convert our stereo predictions to real-world scale we multiply our depths by 5.4.
 STEREO_SCALE_FACTOR = 5.4
 
+width_to_focal = dict()
+width_to_focal[1242] = 721.5377
+width_to_focal[1241] = 718.856
+width_to_focal[1224] = 707.0493
+width_to_focal[1238] = 718.3351
 
 def compute_errors(gt, pred):
     """Computation of error metrics between predicted and ground truth depths
@@ -39,7 +46,6 @@ def compute_errors(gt, pred):
     rmse_log = np.sqrt(rmse_log.mean())
 
     abs_rel = np.mean(np.abs(gt - pred) / gt)
-
     sq_rel = np.mean(((gt - pred) ** 2) / gt)
 
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
@@ -87,12 +93,15 @@ def evaluate(opt):
         
         encoder_params = {
             'num_layers': opt.num_layers,
-            'pretrained': False
+            'pretrained': False,
+            'is_training': False
+
         }
         encoder = factory.get_encoder(opt.architecture)(params=encoder_params)
         decoder_params = {
             'num_ch_enc': encoder.num_ch_enc,
-            'supervised': False
+            'supervised': False,
+            'is_training': False
         }
         depth_decoder = factory.get_decoder(opt.architecture)(params=decoder_params)
 
@@ -101,17 +110,22 @@ def evaluate(opt):
         depth_decoder.load_state_dict(torch.load(decoder_path))
 
         encoder.cuda()
-        encoder.eval()
         depth_decoder.cuda()
+
+        encoder.eval()
         depth_decoder.eval()
 
         pred_disps = []
 
-        print("-> Computing predictions with size {}x{}".format(
-            encoder_dict['width'], encoder_dict['height']))
+        imgs = {}
+        i = 0
 
+        
         with torch.no_grad():
             for data in dataloader:
+                if i <2:
+                    imgs[i]=data[("color", 0, 0)].detach().numpy()
+                    i+=1
                 input_color = data[("color", 0, 0)].cuda()
 
                 if opt.post_process:
@@ -184,16 +198,16 @@ def evaluate(opt):
 
     errors = []
     ratios = []
-
+    counter = 0
     for i in range(pred_disps.shape[0]):
-
+        
         gt_depth = gt_depths[i]
         gt_height, gt_width = gt_depth.shape[:2]
 
         pred_disp = pred_disps[i]
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 1 / pred_disp
-
+        
         if opt.eval_split == "eigen":
             mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
 
@@ -205,6 +219,18 @@ def evaluate(opt):
 
         else:
             mask = gt_depth > 0
+
+        
+        if counter < 32 and opt.qualitatives:
+            img = imgs[counter // 16]
+            img = np.transpose(img[counter % 16, :, :, :], (1, 2, 0))
+            img = cv2.resize(img, (gt_width, gt_height))
+            dest = "qualitatives/"+ opt.eval_split +"/"+ opt.architecture+"/"+str(counter).zfill(2)
+            create_dir(os.path.dirname(dest))
+            plt.imsave(dest+'_disp.png', pred_disp, cmap='magma')
+            cv2.imwrite(dest+'.png', cv2.cvtColor(img *255., cv2.COLOR_RGB2BGR))
+            counter +=1
+            print('saved qualitative '+ dest)
 
         pred_depth = pred_depth[mask]
         gt_depth = gt_depth[mask]
@@ -229,7 +255,7 @@ def evaluate(opt):
     print("Evaluation results for {} ckpt {}".format(opt.architecture, opt.load_weights_folder))
     num_params = (count_parameters(depth_decoder) + count_parameters(encoder)) / 1000000
     print("\n  " + ("{:>8} | " * 8).format("params", "abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
-    print(("&{: 8.3f}  " * 7).format(num_params, *mean_errors.tolist()) + "\\\\")
+    print(("{: 8.3f}".format(num_params) +"&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
     print("\n-> Done!")
 
 

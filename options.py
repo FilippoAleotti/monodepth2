@@ -139,7 +139,7 @@ class MonodepthOptions:
         self.parser.add_argument("--num_workers",
                                  type=int,
                                  help="number of dataloader workers",
-                                 default=12)
+                                 default=4)
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",
@@ -204,6 +204,9 @@ class MonodepthOptions:
         self.parser.add_argument("--prediction_scale",
                                  help="which scale use at testing time?",
                                  type=int)
+        self.parser.add_argument("--qualitatives",
+                                 help="save qualitatives while testing",
+                                 action="store_true")
 
     def parse(self):
         self.options = self.parser.parse_args()

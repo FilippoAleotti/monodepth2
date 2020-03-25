@@ -181,6 +181,6 @@ class Decoder(nn.Module):
                 x = x + features['x3']
         x = self.decode_conv6(x)
         self.outputs = {}
-        assert self.params['scales'] == [0], 'MobileNet outputs a single depth! No multiple scales are allowed'
+        #assert self.params['scales'] == [0], 'MobileNet outputs a single depth! No multiple scales are allowed'
         self.outputs[("disp", 0)] = x
         return self.outputs
