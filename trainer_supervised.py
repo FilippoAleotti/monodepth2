@@ -158,7 +158,8 @@ class Trainer:
 
                 self.compute_depth_losses(targets, outputs,  losses)
                 self.log("train", inputs, outputs, targets, losses)
-                self.val()
+                if not self.opt.skip_validation:
+                    self.val()
 
             self.step += 1
 
@@ -196,6 +197,15 @@ class Trainer:
 
         self.set_train()
 
+    def gradient_loss(self, pred, gt):
+        """ Gradient loss
+        """
+        diff = pred - gt
+        v_gradient = torch.abs(diff[:, :-2, :] - diff[:, 2:, :])
+        h_gradient = torch.abs(diff[:, :, :-2] - diff[:, :, 2:])
+        gradient_loss = torch.mean(h_gradient) + torch.mean(v_gradient)
+        return gradient_loss
+
     def compute_losses(self, outputs, gt):
         """Compute the loss error using HuBer 
         """
@@ -204,11 +214,14 @@ class Trainer:
         mask = gt['mask']
         mask.detach_()
 
-        for scale in self.opt.scales:
+        for i,scale in enumerate(self.opt.scales):
             disp = outputs[("disp", scale)]
             disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-            loss = F.smooth_l1_loss(disp[mask], gt['inverse_depth'], reduction="mean")
-            total_loss += loss
+            l1_loss = F.l1_loss(disp, gt, reduction='mean') * self.opt.l1_weight
+            total_loss += l1_loss
+            weight = self.opt.gradient_weight / (2**i)
+            gradient_loss = weight * self.gradient_loss(disp, gt)
+            total_loss += gradient_loss
 
         total_loss /= self.num_scales
         losses["loss"] = total_loss
@@ -263,9 +276,9 @@ class Trainer:
             for s in self.opt.scales:
                 writer.add_image("color/{}".format(j), inputs[("color")][j].data, self.step)
                 writer.add_image("color_aug/{}".format(j), inputs[("color_aug")][j].data, self.step)
-                writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='jet'), self.step)
-            writer.add_image("gt/{}".format(j), color_map(targets["inverse_depth"][j].data, cmap='jet'), self.step)
-            writer.add_image("gt_mask/{}".format(j), (targets["inverse_depth"][j].data > 0)* 255, self.step)
+                writer.add_image("disp_{}/{}".format(s, j), color_map(outputs[("disp", s)][j], cmap='magma'), self.step)
+            writer.add_image("gt/{}".format(j), color_map(targets["inverse_depth"][j].data, cmap='magma'), self.step)
+            #writer.add_image("gt_mask/{}".format(j), (targets["inverse_depth"][j].data > 0)* 255, self.step)
 
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with

@@ -86,7 +86,17 @@ class MonodepthOptions:
                                  type=int,
                                  help="frames to load",
                                  default=[0, -1, 1])
-
+        self.parser.add_argument("--skip_validation",
+                                 action="store_true",
+                                 help="do not run validation")
+        self.parser.add_argument("--l1_weight",
+                                 type=float,
+                                 help="l1 loss weight",
+                                 default=1.0)
+        self.parser.add_argument("--gradient_weight",
+                                 type=float,
+                                 help="gradient loss weight",
+                                 default=0.5)
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
                                  type=int,
