@@ -56,8 +56,8 @@ class Trainer:
 
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
-        self.model_lr_scheduler = optim.lr_scheduler.StepLR(
-            self.model_optimizer, self.opt.scheduler_step_size, 0.1)
+        self.model_lr_scheduler = optim.lr_scheduler.MultiStepLR(
+            self.model_optimizer, milestones=[20,30], gamma=0.5)
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
