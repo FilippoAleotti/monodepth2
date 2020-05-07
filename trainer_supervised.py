@@ -70,7 +70,8 @@ class Trainer:
 
         # data
         datasets_dict = {"diode": datasets.DIODEDataset,
-                         "nyu": datasets.NYUDataset}
+                         "nyu": datasets.NYUDataset,
+                         "mixed": datasets.MIXEDDataset}
         print("dataset => "+ self.opt.dataset)
         self.dataset = datasets_dict[self.opt.dataset]
         fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
@@ -87,14 +88,15 @@ class Trainer:
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width, is_train=False, img_ext=img_ext)
-        self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        self.val_iter = iter(self.val_loader)
-
+        if not self.opt.skip_validation:
+            val_dataset = self.dataset(
+                self.opt.data_path, val_filenames, self.opt.height, self.opt.width, is_train=False, img_ext=img_ext)
+            self.val_loader = DataLoader(
+                val_dataset, self.opt.batch_size, True,
+                num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            self.val_iter = iter(self.val_loader)
+        else:
+            val_dataset=[]
         self.writers = {}
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
@@ -201,26 +203,25 @@ class Trainer:
         """ Gradient loss
         """
         diff = pred - gt
-        v_gradient = torch.abs(diff[:, :-2, :] - diff[:, 2:, :])
-        h_gradient = torch.abs(diff[:, :, :-2] - diff[:, :, 2:])
+        v_gradient = torch.abs(diff[:, :, :-2, :] - diff[:, :, 2:, :])
+        h_gradient = torch.abs(diff[:, :, :, :-2] - diff[:, :, :, 2:])
         gradient_loss = torch.mean(h_gradient) + torch.mean(v_gradient)
         return gradient_loss
 
     def compute_losses(self, outputs, gt):
-        """Compute the loss error using HuBer 
+        """Compute the loss 
         """
         losses = {}
         total_loss = 0
-        mask = gt['mask']
-        mask.detach_()
+        gt_depth = gt['inverse_depth']
 
         for i,scale in enumerate(self.opt.scales):
             disp = outputs[("disp", scale)]
             disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-            l1_loss = F.l1_loss(disp, gt, reduction='mean') * self.opt.l1_weight
+            l1_loss = F.l1_loss(disp, gt_depth, reduction='mean') * self.opt.l1_weight
             total_loss += l1_loss
             weight = self.opt.gradient_weight / (2**i)
-            gradient_loss = weight * self.gradient_loss(disp, gt)
+            gradient_loss = weight * self.gradient_loss(disp, gt_depth)
             total_loss += gradient_loss
 
         total_loss /= self.num_scales
@@ -238,9 +239,8 @@ class Trainer:
         for i in range(gt.shape[0]):
             pred_i = depth_pred[i,:,:,:]
             gt_i = gt[i,:,:,:]
-            mask_i = mask[i,:,:,:]
             result = Result()
-            result.evaluate(pred_i[mask_i], 1/gt_i[mask_i])
+            result.evaluate(pred_i, gt_i)
             average_meter.update(result, pred_i.size(0))
             
         average=average_meter.average()

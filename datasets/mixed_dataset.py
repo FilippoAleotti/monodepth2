@@ -41,11 +41,12 @@ class MIXEDDataset(data.Dataset):
         """
         inputs = {}
         targets = {}
+        rgb_img = np.asarray(rgb_img)
         inputs['color'] = self.to_tensor(rgb_img)
         inputs['color_aug'] = self.to_tensor(color_aug(rgb_img))
         targets['inverse_depth'] = self.to_tensor(inv_depth_gt)
-        targets['depth'] = self.to_tensor(1.0/ (0.00001 + depth_gt))
-        targets['mask'] = self.to_tensor(inv_depth_gt > 0)
+        targets['depth'] = self.to_tensor(1.0/ (0.00001 + inv_depth_gt))
+        targets['mask'] = self.to_tensor((inv_depth_gt > 0).astype(np.float32))
 
         return inputs, targets
 
@@ -88,16 +89,17 @@ class MIXEDDataset(data.Dataset):
         return inputs, targets
 
     def get_image_path(self, frame_id, line):
-        f_str = "{:06d}{}".format(frame_id, self.img_ext)
-        image_path = os.path.join(self.data_path, 'rgb', f_str)
+        f_str = "{}{}".format(line, self.img_ext)
+        image_path = os.path.join(self.data_path, 'frames', f_str)
         return image_path
 
     def get_depth(self, frame_id, line, do_flip):
         ''' NOTE: gt inverse depth are stored in 16 bit png images '''
-        f_str = "{:06d}{}".format(frame_id, '.npy')
+        f_str = "{}{}".format(line, '.png')
         image_path = os.path.join(self.data_path, 'depth', f_str)
-        inv_depth_gt = cv2.imread(image_path,-1) / 256.0
+        inv_depth_gt = cv2.imread(image_path, -1) / 256.0
+        inv_depth_gt = np.expand_dims(inv_depth_gt, -1)
         if do_flip:
             inv_depth_gt = np.fliplr(inv_depth_gt)
-
+        inv_depth_gt = inv_depth_gt.astype(np.float32)
         return inv_depth_gt
